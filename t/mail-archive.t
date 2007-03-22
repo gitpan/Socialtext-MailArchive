@@ -8,37 +8,67 @@ BEGIN {
     use_ok 'Socialtext::MailArchive';
 }
 
-
 New_message: {
     my $r = Socialtext::Resting::Mock->new;
-    $r->response->code(404);
     my $ma = Socialtext::MailArchive->new(rester => $r);
     isa_ok $ma, 'Socialtext::MailArchive';
     my %msg = fake_mail();
+    $r->response->set_always('code', 404);
     $ma->archive_mail( $msg{raw} );
+    $r->response->set_always('code', 200);
     is $r->get_page('Test Mail'), <<EOT;
 {include [$msg{page}]}
 EOT
     is $r->get_page($msg{page}), $msg{lean};
+    is_deeply [ $r->get_pagetags($msg{page}) ], 
+              ['message', 'Subject: Test Mail'];
 }
 
 Reply_message: {
     my $r = Socialtext::Resting::Mock->new;
-    $r->response->code(404);
+    $r->response->set_always('code', 404);
     my $ma = Socialtext::MailArchive->new(rester => $r);
     isa_ok $ma, 'Socialtext::MailArchive';
     my %msg = fake_mail();
     $ma->archive_mail( $msg{raw} );
+    is_deeply [ $r->get_pagetags($msg{page}) ], 
+              ['message', 'Subject: Test Mail'];
 
     # hack message into a reply
     my $reply = $msg{raw};
     $reply =~ s/^Subject: /Subject: re: /m;
     my $reply_page = $msg{page};
     s/Mon, 5 Feb/Tue, 6 Feb/ for ($reply, $reply_page);
-    $r->response->code(200);
+    $r->response->set_always('code', 200);
     $ma->archive_mail( $reply );
     is $r->get_page('Test Mail'), <<EOT;
 {include [$msg{page}]}
+----
+{include [$reply_page]}
+EOT
+    is_deeply [ $r->get_pagetags($reply_page) ], 
+              ['message', 'Subject: Test Mail'];
+}
+
+Reply_message_with_list_header: {
+    my $r = Socialtext::Resting::Mock->new;
+    $r->response->set_always('code', 404);
+    my $ma = Socialtext::MailArchive->new(rester => $r);
+    isa_ok $ma, 'Socialtext::MailArchive';
+    my %msg = fake_mail();
+    $msg{raw} =~ s/^Subject: .+$/Subject: [Foo] Bar/m;
+    $ma->archive_mail( $msg{raw} );
+    (my $page_title = $msg{page}) =~ s/Test Mail/Bar/;
+
+    # hack message into a reply
+    my $reply = $msg{raw};
+    $reply =~ s/^Subject: /Subject: re: /m;
+    my $reply_page = $page_title;
+    s/Mon, 5 Feb/Tue, 6 Feb/ for ($reply, $reply_page);
+    $r->response->set_always('code', 200);
+    $ma->archive_mail( $reply );
+    is $r->get_page('Bar'), <<EOT;
+{include [$page_title]}
 ----
 {include [$reply_page]}
 EOT
@@ -79,9 +109,9 @@ awe
 EOT
         lean => <<'EOT',
 Date: Mon, 5 Feb 2007 13:14:19 -0800
-To: append@ruby
+To: append at ruby
 Subject: Test Mail
-From: Luke Closs <lukec@ruby>
+From: Luke Closs <lukec at ruby>
 
 awe
 EOT
